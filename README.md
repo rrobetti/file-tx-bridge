@@ -1,5 +1,7 @@
 # file-tx-bridge
 
+> **Warning:** FileTxBridge does not provide full XA transactional guarantees. Filesystems are not transactional resource managers. This library approximates XA-like behavior using staging files, atomic moves, and commit markers, allowing file creation to participate in transactional workflows as closely as practical, but without the strict guarantees of true XA resources.
+
 FileTxBridge is a Java library that coordinates file creation with transactional workflows. It stages writes and only exposes the file after commit, creating a separate commit marker file. If the transaction rolls back, the file is removed in normal scenarios. Designed for crash-safe recovery and idempotent commit/rollback behavior.
 
 ## Features
@@ -119,11 +121,45 @@ for (Xid xid : inDoubt) {
 
 ## Limitations and known trade-offs
 
-- **Same-filesystem requirement**: Staging directory must be on the same filesystem as every target. `ATOMIC_MOVE` across filesystems is not supported and throws `XAException(XAER_RMERR)`.
-- **Advisory locks only**: `PathLockManager` uses `java.nio.channels.FileLock` (advisory). External processes that ignore the lock file can interfere.
-- **Best-effort directory fsync**: Directory fsync is attempted via `FileChannel.open(dir, READ).force(true)`. On Windows and some JVMs this may silently do nothing; the flag files are still fsynced individually.
-- **No automatic heuristic resolution**: The library reports in-doubt Xids to the TM; it does not make autonomous commit/rollback decisions.
-- **Single RM per JVM**: Sharing one `rmHome` across multiple JVMs simultaneously is not supported and may corrupt the tx log.
+### 1. No true transactional isolation
+
+Filesystems do not enforce transactional isolation. Two transactions may attempt to create or replace the same target file simultaneously, and external processes can modify or delete the file during the transaction. Locking is implemented via advisory lock files or OS locks, which other processes can ignore. This creates a risk of race conditions and potential heuristic outcomes.
+
+### 2. Atomic rename constraints
+
+The commit step relies on atomic rename (`Files.move(ATOMIC_MOVE)`). This works only within the same filesystem or mount point — staging and target directories must reside on the same filesystem. Some filesystems (including certain configurations of NFS and other network filesystems) do not guarantee true atomic rename semantics, which can violate the expected commit behaviour.
+
+### 3. Weak rollback guarantees for replacements
+
+When a `REPLACE_EXISTING` operation is committed, the sequence is: back up the old file, then atomically move the staged file to the target. A crash between these two steps can leave an intermediate state (target deleted, backup present) that requires recovery logic to restore. Backup files remain on disk until recovery completes, increasing storage usage and operational complexity.
+
+### 4. Durability depends on correct fsync usage
+
+Crash-safe behaviour requires `fsync()` on both file contents and the containing directory after every flag creation or rename. Directory fsync (`FileChannel.open(dir, READ).force(true)`) is not portable — it is silently skipped on Windows and some JVMs. Many filesystems reorder write operations unless explicitly flushed, meaning that after a power loss, committed flags or renames may not be visible on restart.
+
+### 5. Higher probability of heuristic outcomes
+
+XA assumes that once a resource has prepared, it can always complete commit or rollback. A filesystem participant can fail to commit after prepare due to: permission changes, manual deletion of staging files, a full disk, or a missing staging file. Such failures produce heuristic commit/rollback conditions that require manual intervention to resolve.
+
+### 6. Resource leakage
+
+Prepared but uncommitted transactions hold resources: staging files, backup files, metadata directories, and advisory lock files. If the transaction manager crashes and loses its own log, these artifacts remain indefinitely and must be cleaned up by a recovery process or manual intervention.
+
+### 7. Performance overhead
+
+Compared to a plain file write, the XA-style process requires a staging write, a metadata write, multiple `fsync` operations across several files and directories, and potentially a backup creation. This significantly increases I/O latency per operation.
+
+### 8. External interference
+
+The filesystem is a shared, unmanaged namespace. Other processes may delete or modify staging files, change permissions, or replace directories with symlinks. Any such action can silently break transactional guarantees without the library being aware.
+
+### 9. Security and path safety
+
+If target paths or commit-flag paths originate from external input, callers must validate them before passing to the library. The library does not perform path traversal sanitisation (`../`), symlink resolution, or time-of-check/time-of-use hardening. Applications operating on untrusted input must resolve and validate all paths before use.
+
+### 10. Incomplete XA feature parity
+
+A filesystem resource will typically lack full XA capabilities including precise timeout enforcement, deadlock detection, strict isolation levels, and a durable transaction log comparable to a database engine. This library provides best-effort XA compatibility as closely as filesystem semantics allow, not full equivalence to a true XA resource manager.
 
 ## Building
 
