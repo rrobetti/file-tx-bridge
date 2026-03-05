@@ -161,6 +161,10 @@ If target paths or commit-flag paths originate from external input, callers must
 
 A filesystem resource will typically lack full XA capabilities including precise timeout enforcement, deadlock detection, strict isolation levels, and a durable transaction log comparable to a database engine. This library provides best-effort XA compatibility as closely as filesystem semantics allow, not full equivalence to a true XA resource manager.
 
+## Further reading
+
+- [Spring Boot Integration Guide](docs/spring-boot-integration.md) — step-by-step guide for wiring FileTxBridge into a Spring Boot application with Atomikos or Narayana.
+
 ## Building
 
 ```
