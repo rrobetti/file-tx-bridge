@@ -168,6 +168,13 @@ A filesystem resource will typically lack full XA capabilities including precise
 ## Building
 
 ```
+# Core library
 mvn package          # produces target/file-tx-bridge-1.0.0-SNAPSHOT.jar
 mvn test             # runs all JUnit 5 tests
+mvn install          # installs to local Maven repository (required before building the autoconfigure module)
+
+# Spring Boot autoconfigure module
+cd file-tx-bridge-spring-boot-autoconfigure
+mvn package          # produces target/file-tx-bridge-spring-boot-autoconfigure-1.0.0-SNAPSHOT.jar
+mvn test             # runs auto-configuration tests
 ```

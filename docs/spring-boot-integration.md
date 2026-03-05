@@ -7,6 +7,52 @@ creation operations participate in JTA transactions managed by Spring.
 > FileTxBridge provides best-effort XA behaviour; review the [known limitations](../README.md#limitations-and-known-trade-offs)
 > before adopting it in production.
 
+## Auto-configuration module (recommended)
+
+The `file-tx-bridge-spring-boot-autoconfigure` module (located in the
+`file-tx-bridge-spring-boot-autoconfigure/` directory) registers all FileTxBridge beans
+automatically — no manual `@Configuration` class required.
+
+**Build and install the autoconfigure module:**
+```bash
+# 1. Install the core library to the local Maven repository
+cd file-tx-bridge && mvn install
+
+# 2. Build the autoconfigure module
+cd file-tx-bridge-spring-boot-autoconfigure && mvn package
+```
+
+**Add it to your Spring Boot 2.7.x application:**
+```xml
+<dependency>
+    <groupId>com.example</groupId>
+    <artifactId>file-tx-bridge-spring-boot-autoconfigure</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+</dependency>
+```
+
+**Configure it in `application.properties`:**
+```properties
+filetxbridge.rm-home=/var/lib/my-app/file-tx
+# filetxbridge.startup.recovery-enabled=true   # default: true
+```
+
+Spring Boot will auto-configure `FileResourceManager`, `FileXaResource`, `RecoveryManager`,
+and startup recovery automatically. Skip to [section 5](#5-enlisting-the-xaresource-in-a-transaction)
+for how to enlist the auto-configured `FileXaResource` in a transaction.
+
+> **Spring Boot version note:** The autoconfigure module targets Spring Boot 2.7.x, which uses
+> the `javax.transaction` namespace matching the core library. Spring Boot 3.x requires the
+> core to be migrated to the `jakarta.transaction` namespace first.
+
+---
+
+## Manual wiring (Spring Boot 3.x or custom setup)
+
+The sections below describe manual bean wiring, which is appropriate when:
+- Using Spring Boot 3.x (after migrating the core to `jakarta.transaction`)
+- Requiring custom bean configuration not covered by the auto-configuration
+
 ---
 
 ## Table of Contents
