@@ -35,6 +35,6 @@ public class FileOperation {
     }
 
     public byte[] getContent() {
-        return content;
+        return content == null ? null : content.clone();
     }
 }

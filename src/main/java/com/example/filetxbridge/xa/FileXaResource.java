@@ -154,7 +154,7 @@ public class FileXaResource implements XAResource {
                 try {
                     Files.move(stagingFile, targetPath, StandardCopyOption.ATOMIC_MOVE);
                 } catch (UnsupportedOperationException e) {
-                    log.error("Atomic move not supported", e);
+                    log.error("Atomic move not supported: {} -> {}", stagingFile, targetPath, e);
                     XAException xa = new XAException(XAException.XAER_RMERR);
                     xa.initCause(e);
                     throw xa;
@@ -232,7 +232,9 @@ public class FileXaResource implements XAResource {
                     Files.createDirectories(targetPath.getParent());
                     Files.move(backup, targetPath, StandardCopyOption.ATOMIC_MOVE);
                 } else if (op.getMode() == WriteMode.CREATE_NEW) {
-                    // For CREATE_NEW the target was created by this transaction; remove it
+                    // For CREATE_NEW: the staging file was never atomically moved to the target
+                    // during rollback (commit was not reached), so delete the target if it exists
+                    // (e.g., commit partially succeeded before crash).
                     Files.deleteIfExists(targetPath);
                 }
                 // For REPLACE_EXISTING with no backup: commit never moved the original,

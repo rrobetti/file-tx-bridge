@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.example.filetxbridge.FileXaResourceTest" time="0.088" tests="7" errors="0" skipped="0" failures="0">
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.example.filetxbridge.FileXaResourceTest" time="0.094" tests="7" errors="0" skipped="0" failures="0">
   <properties>
     <property name="java.specification.version" value="17"/>
     <property name="sun.jnu.encoding" value="UTF-8"/>
@@ -12,7 +12,7 @@
     <property name="java.vm.specification.version" value="17"/>
     <property name="sun.java.launcher" value="SUN_STANDARD"/>
     <property name="sun.boot.library.path" value="/usr/lib/jvm/temurin-17-jdk-amd64/lib"/>
-    <property name="sun.java.command" value="/home/runner/work/file-tx-bridge/file-tx-bridge/target/surefire/surefirebooter-20260305102231022_3.jar /home/runner/work/file-tx-bridge/file-tx-bridge/target/surefire 2026-03-05T10-22-30_946-jvmRun1 surefire-20260305102231022_1tmp surefire_0-20260305102231022_2tmp"/>
+    <property name="sun.java.command" value="/home/runner/work/file-tx-bridge/file-tx-bridge/target/surefire/surefirebooter-20260305102844024_3.jar /home/runner/work/file-tx-bridge/file-tx-bridge/target/surefire 2026-03-05T10-28-43_938-jvmRun1 surefire-20260305102844024_1tmp surefire_0-20260305102844024_2tmp"/>
     <property name="jdk.debug" value="release"/>
     <property name="surefire.test.class.path" value="/home/runner/work/file-tx-bridge/file-tx-bridge/target/test-classes:/home/runner/work/file-tx-bridge/file-tx-bridge/target/classes:/home/runner/.m2/repository/javax/transaction/javax.transaction-api/1.3/javax.transaction-api-1.3.jar:/home/runner/.m2/repository/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar:/home/runner/.m2/repository/org/junit/jupiter/junit-jupiter/5.10.1/junit-jupiter-5.10.1.jar:/home/runner/.m2/repository/org/junit/jupiter/junit-jupiter-api/5.10.1/junit-jupiter-api-5.10.1.jar:/home/runner/.m2/repository/org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.jar:/home/runner/.m2/repository/org/junit/platform/junit-platform-commons/1.10.1/junit-platform-commons-1.10.1.jar:/home/runner/.m2/repository/org/apiguardian/apiguardian-api/1.1.2/apiguardian-api-1.1.2.jar:/home/runner/.m2/repository/org/junit/jupiter/junit-jupiter-params/5.10.1/junit-jupiter-params-5.10.1.jar:/home/runner/.m2/repository/org/junit/jupiter/junit-jupiter-engine/5.10.1/junit-jupiter-engine-5.10.1.jar:/home/runner/.m2/repository/org/junit/platform/junit-platform-engine/1.10.1/junit-platform-engine-1.10.1.jar:/home/runner/.m2/repository/org/slf4j/slf4j-simple/2.0.9/slf4j-simple-2.0.9.jar:"/>
     <property name="sun.cpu.endian" value="little"/>
@@ -27,7 +27,7 @@
     <property name="line.separator" value="&#10;"/>
     <property name="java.vm.specification.vendor" value="Oracle Corporation"/>
     <property name="java.specification.name" value="Java Platform API Specification"/>
-    <property name="surefire.real.class.path" value="/home/runner/work/file-tx-bridge/file-tx-bridge/target/surefire/surefirebooter-20260305102231022_3.jar"/>
+    <property name="surefire.real.class.path" value="/home/runner/work/file-tx-bridge/file-tx-bridge/target/surefire/surefirebooter-20260305102844024_3.jar"/>
     <property name="sun.management.compiler" value="HotSpot 64-Bit Tiered Compilers"/>
     <property name="java.runtime.version" value="17.0.18+8"/>
     <property name="user.name" value="runner"/>
@@ -53,15 +53,15 @@
     <property name="sun.io.unicode.encoding" value="UnicodeLittle"/>
     <property name="java.class.version" value="61.0"/>
   </properties>
-  <testcase name="testIdempotentRollback" classname="com.example.filetxbridge.FileXaResourceTest" time="0.027">
+  <testcase name="testIdempotentRollback" classname="com.example.filetxbridge.FileXaResourceTest" time="0.023">
     <system-err><![CDATA[[main] INFO com.example.filetxbridge.xa.FileXaResource - rollback: already ROLLED_BACK for 1-Z2xvYmFsLTQ-YnJhbmNoLTQ
 ]]></system-err>
   </testcase>
-  <testcase name="testReplaceExistingRollbackRestoresOldContent" classname="com.example.filetxbridge.FileXaResourceTest" time="0.014"/>
-  <testcase name="testRollbackDeletesTargetAndFlagFile" classname="com.example.filetxbridge.FileXaResourceTest" time="0.006"/>
+  <testcase name="testReplaceExistingRollbackRestoresOldContent" classname="com.example.filetxbridge.FileXaResourceTest" time="0.018"/>
+  <testcase name="testRollbackDeletesTargetAndFlagFile" classname="com.example.filetxbridge.FileXaResourceTest" time="0.009"/>
   <testcase name="testCrashRecoveryAfterPrepare" classname="com.example.filetxbridge.FileXaResourceTest" time="0.01"/>
-  <testcase name="testReplaceExistingCommitReplacesContent" classname="com.example.filetxbridge.FileXaResourceTest" time="0.007"/>
-  <testcase name="testIdempotentCommit" classname="com.example.filetxbridge.FileXaResourceTest" time="0.007">
+  <testcase name="testReplaceExistingCommitReplacesContent" classname="com.example.filetxbridge.FileXaResourceTest" time="0.009"/>
+  <testcase name="testIdempotentCommit" classname="com.example.filetxbridge.FileXaResourceTest" time="0.008">
     <system-err><![CDATA[[main] INFO com.example.filetxbridge.xa.FileXaResource - commit: already COMMITTED for 1-Z2xvYmFsLTM-YnJhbmNoLTM
 ]]></system-err>
   </testcase>
