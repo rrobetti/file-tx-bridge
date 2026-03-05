@@ -33,9 +33,8 @@ import java.nio.file.Path;
  * See {@link FileTxBridgeProperties} for the full list of available properties.
  *
  * <h2>Spring Boot version compatibility</h2>
- * This module targets Spring Boot 2.7.x, which uses the {@code javax.transaction} namespace
- * matching the core library. Spring Boot 3.x requires the core to be migrated to the
- * {@code jakarta.transaction} namespace before full JTA compatibility can be achieved.
+ * This module targets Spring Boot 3.x, which uses the {@code jakarta.transaction} namespace
+ * matching the core library.
  */
 @AutoConfiguration
 @ConditionalOnClass(FileResourceManager.class)

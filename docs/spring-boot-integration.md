@@ -22,7 +22,7 @@ cd file-tx-bridge && mvn install
 cd file-tx-bridge-spring-boot-autoconfigure && mvn package
 ```
 
-**Add it to your Spring Boot 2.7.x application:**
+**Add it to your Spring Boot 3.x application:**
 ```xml
 <dependency>
     <groupId>com.example</groupId>
@@ -41,17 +41,13 @@ Spring Boot will auto-configure `FileResourceManager`, `FileXaResource`, `Recove
 and startup recovery automatically. Skip to [section 5](#5-enlisting-the-xaresource-in-a-transaction)
 for how to enlist the auto-configured `FileXaResource` in a transaction.
 
-> **Spring Boot version note:** The autoconfigure module targets Spring Boot 2.7.x, which uses
-> the `javax.transaction` namespace matching the core library. Spring Boot 3.x requires the
-> core to be migrated to the `jakarta.transaction` namespace first.
+> **Spring Boot version note:** The autoconfigure module targets Spring Boot 3.x (`jakarta.transaction` namespace).
 
 ---
 
-## Manual wiring (Spring Boot 3.x or custom setup)
+## Manual wiring (custom setup)
 
-The sections below describe manual bean wiring, which is appropriate when:
-- Using Spring Boot 3.x (after migrating the core to `jakarta.transaction`)
-- Requiring custom bean configuration not covered by the auto-configuration
+The sections below describe manual bean wiring, which is appropriate when requiring custom bean configuration not covered by the auto-configuration.
 
 ---
 
@@ -78,10 +74,9 @@ The sections below describe manual bean wiring, which is appropriate when:
 | JTA transaction manager | Atomikos (`spring-boot-starter-jta-atomikos`) or Narayana |
 | FileTxBridge 1.0.0-SNAPSHOT | Built locally via `mvn install` |
 
-> **Spring Boot 2.x note:** Spring Boot 2.x uses the `javax.transaction.*` namespace which matches
-> FileTxBridge's current dependency (`javax.transaction-api:1.3`). The configuration below targets
-> Spring Boot 3.x with Atomikos. For Spring Boot 2.x, replace `jakarta.*` imports with `javax.*`
-> and adjust the Atomikos auto-configuration class names accordingly.
+> **Spring Boot 2.x note:** Spring Boot 2.x uses the `javax.transaction.*` namespace (Jakarta EE 8).
+> FileTxBridge has been migrated to `jakarta.transaction.*` (Jakarta EE 9+) and targets Spring Boot 3.x.
+> For Spring Boot 2.x you would need to stay on the previous `javax.transaction-api:1.3` dependency.
 
 ---
 
@@ -115,8 +110,8 @@ Add FileTxBridge and the Atomikos JTA starter to your application's `pom.xml`:
 -->
 ```
 
-FileTxBridge declares `javax.transaction-api` as `provided`. When you add the JTA starter, Spring
-Boot supplies the JTA API at runtime, so no explicit `javax.transaction-api` dependency is needed
+FileTxBridge declares `jakarta.transaction:jakarta.transaction-api` as `provided`. When you add the JTA starter, Spring
+Boot supplies the JTA API at runtime, so no explicit `jakarta.transaction-api` dependency is needed
 in your application.
 
 ---

@@ -29,7 +29,7 @@ FileTxBridge is a Java library that coordinates file creation with transactional
 </dependency>
 ```
 
-The library declares `javax.transaction:javax.transaction-api` as `provided` — your application or container must supply the JTA API at runtime.
+The library declares `jakarta.transaction:jakarta.transaction-api` as `provided` — your application or container must supply the JTA API at runtime.
 
 ## Quick start
 
@@ -53,7 +53,7 @@ recovery.performStartupRecovery();
 
 // 3. Per-transaction usage — pseudocode with a JTA TransactionManager (tm)
 tm.begin();
-javax.transaction.Transaction tx = tm.getTransaction();
+jakarta.transaction.Transaction tx = tm.getTransaction();
 
 FileXaSession session = new FileXaSession(rm);
 tx.enlistResource(session.getXaResource());   // enlist with the TM
