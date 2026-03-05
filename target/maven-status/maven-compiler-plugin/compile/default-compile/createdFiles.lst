@@ -1,0 +1,15 @@
+com/example/filetxbridge/FileResourceManager.class
+com/example/filetxbridge/lock/PathLockManager$LockEntry.class
+com/example/filetxbridge/xa/FileXaSession.class
+com/example/filetxbridge/util/DurabilityHelper.class
+com/example/filetxbridge/recovery/TxMetadata$OpMetadata.class
+com/example/filetxbridge/xa/FileXaResource.class
+com/example/filetxbridge/core/TxState.class
+com/example/filetxbridge/lock/PathLockManager.class
+com/example/filetxbridge/recovery/TxMetadata.class
+com/example/filetxbridge/core/FileOperation.class
+com/example/filetxbridge/util/XidUtils.class
+com/example/filetxbridge/core/FileTxContext.class
+com/example/filetxbridge/core/WriteMode.class
+com/example/filetxbridge/recovery/RecoveryManager.class
+com/example/filetxbridge/util/XidUtils$SimpleXid.class
