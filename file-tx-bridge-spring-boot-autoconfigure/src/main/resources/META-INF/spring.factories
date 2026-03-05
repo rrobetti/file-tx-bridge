@@ -1,0 +1,4 @@
+# Spring Boot 2.x auto-configuration registration.
+# Spring Boot 3.x uses META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports instead.
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+  com.example.filetxbridge.autoconfigure.FileTxBridgeAutoConfiguration
