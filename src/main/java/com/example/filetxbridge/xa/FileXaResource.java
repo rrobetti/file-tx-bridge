@@ -140,6 +140,15 @@ public class FileXaResource implements XAResource {
                 Path stagingFile = stagingPath(ctx, op);
                 Path targetPath = op.getTargetPath();
 
+                // Atomic rename is all-or-nothing: if the staging file is already
+                // gone, a prior (possibly crashed) commit attempt already moved it
+                // into place for this exact operation. A retry (e.g. driven by
+                // recovery) must not attempt that move again, or it fails with
+                // NoSuchFileException even though this operation already succeeded.
+                if (!Files.exists(stagingFile)) {
+                    continue;
+                }
+
                 // Ensure parent directory exists
                 Files.createDirectories(targetPath.getParent());
 
