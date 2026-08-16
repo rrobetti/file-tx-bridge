@@ -478,3 +478,30 @@ boolean isCommitted = Files.exists(commitFlagPath);
 | Not running startup recovery | In-doubt transactions from a previous crash will accumulate on disk. Always call `performStartupRecovery()` at startup. |
 | Target path from user input | Resolve and canonicalise all paths before passing them to `addCreateFile()`. FileTxBridge does not sanitise paths for traversal attacks. |
 | Staging directory not fsynced on Windows | Directory fsync is a no-op on Windows. On crash, committed flag files may be lost. Consider this limitation when deploying on Windows hosts. |
+
+## Scheduled abandoned-transaction cleanup (opt-in)
+
+`RecoveryManager#cleanupAbandonedTransactions(Duration)` sweeps tx directories that
+crashed before ever reaching `prepare()`. `recover()` cannot surface those (a
+resource must not report branches it never voted YES on), so nothing else ever
+cleans them up otherwise. The autoconfigure module can run this sweep
+automatically on a schedule, transaction-manager-agnostic (Atomikos, Bitronix,
+Narayana, or any other JTA implementation):
+
+```properties
+filetxbridge.cleanup.enabled=true
+filetxbridge.cleanup.interval=1h    # optional, defaults to 1h
+filetxbridge.cleanup.max-age=24h    # optional, defaults to 24h
+```
+
+Off by default -- new, unproven-in-the-wild behaviour should never activate
+silently.
+
+`max-age` is a forensic/operational grace period, not a safety requirement: a tx
+directory with no PREPARED/COMMITTING/COMMITTED/ROLLED_BACK flag and no in-memory
+context on the resource instance is already permanently unreachable by `prepare()`
+regardless of age (`prepare()` cannot succeed without a prior `start()` on that
+exact resource instance, and the JVM that could have called `start()` on it
+crashed without ever logging the branch with the transaction manager -- that only
+happens once `prepare()` is reached). The wait just avoids destroying evidence
+before anyone can look at it if a process is crash-looping.
