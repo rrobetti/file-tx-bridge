@@ -33,6 +33,7 @@ public class FileXaResource implements XAResource {
     public static final String FLAG_COMMITTED = "COMMITTED";
     public static final String FLAG_ROLLING_BACK = "ROLLING_BACK";
     public static final String FLAG_ROLLED_BACK = "ROLLED_BACK";
+    public static final String FLAG_HEURISTIC_HAZARD = "HEURISTIC_HAZARD";
     public static final String META_FILE = "meta.properties";
 
     private final FileResourceManager rm;
@@ -136,6 +137,8 @@ public class FileXaResource implements XAResource {
             }
             ctx.setState(TxState.COMMITTING);
 
+            boolean anyOperationAlreadyCommitted = false;
+
             for (FileOperation op : ctx.getOperations()) {
                 Path stagingFile = stagingPath(ctx, op);
                 Path targetPath = op.getTargetPath();
@@ -152,31 +155,62 @@ public class FileXaResource implements XAResource {
                 // below, which fails loudly (not silently) when staging is
                 // genuinely gone.
                 if (!Files.exists(stagingFile) && Files.exists(targetPath)) {
+                    anyOperationAlreadyCommitted = true;
                     continue;
                 }
 
-                // Ensure parent directory exists
-                Files.createDirectories(targetPath.getParent());
-
-                // For REPLACE_EXISTING, backup existing target
-                if (op.getMode() == WriteMode.REPLACE_EXISTING && Files.exists(targetPath)) {
-                    Path backup = backupPath(key, op);
-                    Files.createDirectories(backup.getParent());
-                    Files.move(targetPath, backup, StandardCopyOption.ATOMIC_MOVE);
-                }
-
-                // Atomic move staging → target
                 try {
+                    // Ensure parent directory exists
+                    Files.createDirectories(targetPath.getParent());
+
+                    // For REPLACE_EXISTING, backup existing target
+                    if (op.getMode() == WriteMode.REPLACE_EXISTING && Files.exists(targetPath)) {
+                        Path backup = backupPath(key, op);
+                        Files.createDirectories(backup.getParent());
+                        Files.move(targetPath, backup, StandardCopyOption.ATOMIC_MOVE);
+                    }
+
+                    // Atomic move staging → target
                     Files.move(stagingFile, targetPath, StandardCopyOption.ATOMIC_MOVE);
-                } catch (UnsupportedOperationException e) {
-                    log.error("Atomic move not supported: {} -> {}", stagingFile, targetPath, e);
+
+                    DurabilityHelper.fsyncFile(targetPath);
+                    DurabilityHelper.fsyncDir(targetPath.getParent());
+
+                    anyOperationAlreadyCommitted = true;
+                } catch (IOException | UnsupportedOperationException e) {
+                    if (anyOperationAlreadyCommitted) {
+                        // Another operation in this SAME transaction already
+                        // durably succeeded (its target now holds the new
+                        // content) while this one cannot complete right now.
+                        // We do not know the final outcome for certain: we have
+                        // not undone this operation, so a later commit() retry
+                        // could still finish it if the underlying problem
+                        // clears (see README's "Higher probability of heuristic
+                        // outcomes" limitation) -- that ambiguity is exactly
+                        // XA_HEURHAZ, not XA_HEURMIX (which requires KNOWING
+                        // that part was committed and another part was rolled
+                        // back). The resource must say so, so the TM can
+                        // reconcile it instead of treating this as a plain
+                        // retriable failure.
+                        try {
+                            Path heuristicFlag = txDir.resolve(FLAG_HEURISTIC_HAZARD);
+                            if (!Files.exists(heuristicFlag)) {
+                                DurabilityHelper.createFlagFile(heuristicFlag);
+                            }
+                        } catch (IOException flagError) {
+                            log.warn("Failed to record {} flag for {}", FLAG_HEURISTIC_HAZARD, key, flagError);
+                        }
+                        log.error("Heuristic hazard for xid {}: op {} failed after another op already committed",
+                                key, op.getOpId(), e);
+                        XAException xa = new XAException(XAException.XA_HEURHAZ);
+                        xa.initCause(e);
+                        throw xa;
+                    }
+                    log.error("commit failed for xid {} on op {}", key, op.getOpId(), e);
                     XAException xa = new XAException(XAException.XAER_RMERR);
                     xa.initCause(e);
                     throw xa;
                 }
-
-                DurabilityHelper.fsyncFile(targetPath);
-                DurabilityHelper.fsyncDir(targetPath.getParent());
             }
 
             // Create COMMITTED flag in txDir

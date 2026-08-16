@@ -164,6 +164,7 @@ A filesystem resource will typically lack full XA capabilities including precise
 ## Further reading
 
 - [Spring Boot Integration Guide](docs/spring-boot-integration.md) — step-by-step guide for wiring FileTxBridge into a Spring Boot application with Atomikos or Narayana.
+- [Atomikos Integration Guide](docs/atomikos-integration.md) — how to register a `FileXaResource` with Atomikos using the `file-tx-bridge-atomikos` module, so it survives a JVM restart. Needed whether or not Spring Boot is in the picture: registered manually in plain Java, or automatically when combined with `file-tx-bridge-spring-boot-autoconfigure` (which registers the Spring bean, but does not perform this Atomikos-specific registration on its own).
 
 ## Building
 
@@ -171,10 +172,15 @@ A filesystem resource will typically lack full XA capabilities including precise
 # Core library
 mvn package          # produces target/file-tx-bridge-1.0.0-SNAPSHOT.jar
 mvn test             # runs all JUnit 5 tests
-mvn install          # installs to local Maven repository (required before building the autoconfigure module)
+mvn install          # installs to local Maven repository (required before building the autoconfigure/atomikos modules)
 
 # Spring Boot autoconfigure module
 cd file-tx-bridge-spring-boot-autoconfigure
 mvn package          # produces target/file-tx-bridge-spring-boot-autoconfigure-1.0.0-SNAPSHOT.jar
 mvn test             # runs auto-configuration tests
+
+# Atomikos integration module
+cd file-tx-bridge-atomikos
+mvn package          # produces target/file-tx-bridge-atomikos-1.0.0-SNAPSHOT.jar
+mvn test             # runs registration tests
 ```

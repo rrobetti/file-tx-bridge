@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>file-tx-bridge-atomikos</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>file-tx-bridge-atomikos</name>
+    <description>
+        Atomikos integration for file-tx-bridge. Ships a ready-to-use
+        XATransactionalResource wrapper so a FileXaResource can be registered with
+        Atomikos and survive a restart -- usable standalone in plain Java, or
+        automatically as a Spring Boot auto-configuration when both Spring Boot and
+        a FileXaResource bean (e.g. from file-tx-bridge-spring-boot-autoconfigure)
+        are present.
+
+        Atomikos never persists an XAResource object in its own transaction log --
+        only the resource's unique name -- so after a crash it needs a factory it
+        can ask for a fresh instance by name before driving recover()/commit()/
+        rollback() on it. Without this registration, Transaction#enlistResource is
+        rejected with "no registered resource that can recover the given XAResource
+        instance".
+    </description>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <atomikos.version>6.0.1</atomikos.version>
+        <spring-boot.version>3.2.12</spring-boot.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- ===== Core library ===== -->
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>file-tx-bridge</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+
+        <!-- ===== Atomikos ===== -->
+        <!--
+            Provided so the consuming application's own Atomikos version is used
+            at runtime, rather than forcing a specific one here.
+
+            transactions-jta targets the pre-Jakarta-EE9 javax.transaction.*
+            package namespace (its own jakarta.transaction-api dependency is
+            `provided` at version 1.3.x, which still uses the javax.transaction.*
+            packages: the group/artifact-id renamed to "jakarta" before Jakarta
+            EE 9 renamed the actual Java packages). That is a different namespace
+            from the core module's own jakarta.transaction-api:2.0.1 dependency
+            (jakarta.transaction.* packages, Jakarta EE 9+), so an application
+            wiring this module together with Atomikos needs
+            javax.transaction:javax.transaction-api on its classpath too; see
+            docs/atomikos-integration.md.
+        -->
+        <dependency>
+            <groupId>com.atomikos</groupId>
+            <artifactId>transactions-jta</artifactId>
+            <version>${atomikos.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- ===== Logging API ===== -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.9</version>
+        </dependency>
+
+        <!-- ===== Spring Boot (optional) ===== -->
+        <!--
+            Marked optional so this JAR can be placed on the classpath without
+            forcing a Spring Boot dependency on plain-Java consumers. The
+            auto-configuration is gated by @ConditionalOnClass/@ConditionalOnBean,
+            so it simply does not activate unless the consuming application
+            already has both Spring Boot and a FileXaResource bean.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- ===== Test dependencies ===== -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.1</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.9</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>javax.transaction</groupId>
+            <artifactId>javax.transaction-api</artifactId>
+            <version>1.3</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-test-autoconfigure</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.1.2</version>
+                <configuration>
+                    <includes>
+                        <include>**/*Test.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
