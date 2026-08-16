@@ -11,9 +11,9 @@ import java.time.Duration;
  * <pre>
  * filetxbridge.rm-home=/var/lib/my-app/file-tx
  * filetxbridge.startup.recovery-enabled=true
- * filetxbridge.cleanup.enabled=true
- * filetxbridge.cleanup.interval=1h
- * # filetxbridge.cleanup.max-age=24h   # optional, defaults to 24h
+ * # filetxbridge.cleanup.enabled=false   # optional, defaults to true
+ * # filetxbridge.cleanup.interval=1h     # optional, defaults to 1h
+ * # filetxbridge.cleanup.max-age=24h     # optional, defaults to 24h
  * </pre>
  */
 @ConfigurationProperties(prefix = "filetxbridge")
@@ -90,10 +90,14 @@ public class FileTxBridgeProperties {
         /**
          * Whether to periodically call
          * {@link com.example.filetxbridge.recovery.RecoveryManager#cleanupAbandonedTransactions(Duration)}
-         * in the background. Off by default: new, unproven-in-the-wild behaviour
-         * should never activate silently.
+         * in the background. Defaults to {@code true}: a tx directory this sweep
+         * would ever touch is already permanently unreachable by prepare()
+         * regardless of age (see that method's javadoc for why), so there is no
+         * correctness reason to leave the underlying resource leak (the README's
+         * "Resource leakage" limitation) unaddressed by default. Set to
+         * {@code false} to disable if you would rather manage this yourself.
          */
-        private boolean enabled = false;
+        private boolean enabled = true;
 
         /**
          * How often to run the sweep. Defaults to 1 hour.

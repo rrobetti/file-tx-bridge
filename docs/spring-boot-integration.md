@@ -479,23 +479,26 @@ boolean isCommitted = Files.exists(commitFlagPath);
 | Target path from user input | Resolve and canonicalise all paths before passing them to `addCreateFile()`. FileTxBridge does not sanitise paths for traversal attacks. |
 | Staging directory not fsynced on Windows | Directory fsync is a no-op on Windows. On crash, committed flag files may be lost. Consider this limitation when deploying on Windows hosts. |
 
-## Scheduled abandoned-transaction cleanup (opt-in)
+## Scheduled abandoned-transaction cleanup (on by default)
 
 `RecoveryManager#cleanupAbandonedTransactions(Duration)` sweeps tx directories that
 crashed before ever reaching `prepare()`. `recover()` cannot surface those (a
 resource must not report branches it never voted YES on), so nothing else ever
-cleans them up otherwise. The autoconfigure module can run this sweep
+cleans them up otherwise -- left unaddressed, this accumulates indefinitely (the
+README's "Resource leakage" limitation). The autoconfigure module runs this sweep
 automatically on a schedule, transaction-manager-agnostic (Atomikos, Bitronix,
 Narayana, or any other JTA implementation):
 
 ```properties
-filetxbridge.cleanup.enabled=true
-filetxbridge.cleanup.interval=1h    # optional, defaults to 1h
-filetxbridge.cleanup.max-age=24h    # optional, defaults to 24h
+# filetxbridge.cleanup.enabled=false   # optional, defaults to true
+filetxbridge.cleanup.interval=1h       # optional, defaults to 1h
+filetxbridge.cleanup.max-age=24h       # optional, defaults to 24h
 ```
 
-Off by default -- new, unproven-in-the-wild behaviour should never activate
-silently.
+On by default: what it deletes is already permanently unreachable regardless of
+age (see below), so there is no correctness reason to leave the underlying
+resource leak unaddressed. Set `filetxbridge.cleanup.enabled=false` to disable if
+you would rather manage this yourself.
 
 `max-age` is a forensic/operational grace period, not a safety requirement: a tx
 directory with no PREPARED/COMMITTING/COMMITTED/ROLLED_BACK flag and no in-memory

@@ -28,7 +28,8 @@ import java.nio.file.Path;
  *   <li>{@link FileTxStartupRecovery} — runs startup recovery on ApplicationReadyEvent
  *       (disable with {@code filetxbridge.startup.recovery-enabled=false}).</li>
  *   <li>{@link FileTxBridgeCleanupScheduler} — periodically sweeps abandoned
- *       pre-prepare transactions (opt-in via {@code filetxbridge.cleanup.enabled=true}).</li>
+ *       pre-prepare transactions (on by default; disable with
+ *       {@code filetxbridge.cleanup.enabled=false}).</li>
  * </ul>
  *
  * <h2>Configuration properties</h2>
@@ -85,17 +86,17 @@ public class FileTxBridgeAutoConfiguration {
     }
 
     /**
-     * Runs {@link RecoveryManager#cleanupAbandonedTransactions} on a schedule.
-     * Opt-in via {@code filetxbridge.cleanup.enabled=true} -- new,
-     * unproven-in-the-wild behaviour should never activate silently, even though
-     * what it deletes is already permanently unreachable regardless of age (see
-     * that method's javadoc). Transaction-manager-agnostic: works the same
-     * whether the application uses Atomikos, Bitronix, Narayana, or any other JTA
-     * implementation.
+     * Runs {@link RecoveryManager#cleanupAbandonedTransactions} on a schedule. On
+     * by default (disable with {@code filetxbridge.cleanup.enabled=false}): what
+     * it deletes is already permanently unreachable regardless of age (see that
+     * method's javadoc), so there is no correctness reason to leave the
+     * underlying resource leak unaddressed by default. Transaction-manager-
+     * agnostic: works the same whether the application uses Atomikos, Bitronix,
+     * Narayana, or any other JTA implementation.
      */
     @Bean(initMethod = "start", destroyMethod = "stop")
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "filetxbridge.cleanup", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "filetxbridge.cleanup", name = "enabled", havingValue = "true", matchIfMissing = true)
     public FileTxBridgeCleanupScheduler fileTxBridgeCleanupScheduler(
             RecoveryManager recoveryManager, FileTxBridgeProperties props) {
         FileTxBridgeProperties.Cleanup cleanup = props.getCleanup();
