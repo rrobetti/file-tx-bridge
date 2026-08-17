@@ -141,11 +141,17 @@ public class FileXaResource implements XAResource {
                 Path targetPath = op.getTargetPath();
 
                 // Atomic rename is all-or-nothing: if the staging file is already
-                // gone, a prior (possibly crashed) commit attempt already moved it
-                // into place for this exact operation. A retry (e.g. driven by
-                // recovery) must not attempt that move again, or it fails with
-                // NoSuchFileException even though this operation already succeeded.
-                if (!Files.exists(stagingFile)) {
+                // gone AND the target is present, a prior (possibly crashed) commit
+                // attempt already moved it into place for this exact operation --
+                // that pairing is definitive proof. Files.exists() alone is not
+                // enough: it also returns false when it cannot determine existence
+                // due to an I/O error, not just genuine absence, so treating a
+                // missing staging file as "already moved" without confirming the
+                // target risks silently committing an incomplete operation set. If
+                // the target isn't there either, fall through to the move attempt
+                // below, which fails loudly (not silently) when staging is
+                // genuinely gone.
+                if (!Files.exists(stagingFile) && Files.exists(targetPath)) {
                     continue;
                 }
 
