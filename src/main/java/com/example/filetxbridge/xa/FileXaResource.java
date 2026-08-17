@@ -187,6 +187,19 @@ public class FileXaResource implements XAResource {
                     continue;
                 }
 
+                // Staging is gone and the target never landed: the staging file was
+                // lost before the move ever ran.  This is not an ambiguous heuristic
+                // situation -- we can assert definitively that this operation was
+                // never applied.  Report XAER_RMERR so the TM knows the commit
+                // failed on this operation rather than silently committing an
+                // incomplete set.
+                if (!Files.exists(stagingFile) && !Files.exists(targetPath)) {
+                    log.error("commit failed for xid {}: op {} staging file is gone but target never landed",
+                            key, op.getOpId());
+                    XAException xa = new XAException(XAException.XAER_RMERR);
+                    throw xa;
+                }
+
                 try {
                     // Ensure parent directory exists
                     Files.createDirectories(targetPath.getParent());
