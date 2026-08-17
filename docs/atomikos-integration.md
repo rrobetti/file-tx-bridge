@@ -113,6 +113,12 @@ If no `FileXaResource` bean is present (`file-tx-bridge-spring-boot-autoconfigur
 not on the classpath, and none defined manually), this auto-configuration simply
 does not activate — it never fails startup for lacking one.
 
+> **Scheduled abandoned-transaction cleanup** (sweeping tx directories that crashed
+> before ever reaching `prepare()`) is transaction-manager-agnostic, not specific
+> to Atomikos -- see the [Spring Boot Integration
+> Guide](spring-boot-integration.md#scheduled-abandoned-transaction-cleanup-on-by-default)
+> for that.
+
 ## Namespace note
 
 `com.atomikos:transactions-jta` targets the pre-Jakarta-EE9 `javax.transaction.*`
