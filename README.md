@@ -1,5 +1,7 @@
 # file-tx-bridge
 
+[![CI](https://github.com/rrobetti/file-tx-bridge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rrobetti/file-tx-bridge/actions/workflows/ci.yml)
+
 > **Warning:** FileTxBridge does not provide full XA transactional guarantees. Filesystems are not transactional resource managers. This library approximates XA-like behavior using staging files, atomic moves, and commit markers, allowing file creation to participate in transactional workflows as closely as practical, but without the strict guarantees of true XA resources.
 
 FileTxBridge is a Java library that coordinates file creation with transactional workflows. It stages writes and only exposes the file after commit, creating a separate commit marker file. If the transaction rolls back, the file is removed in normal scenarios. Designed for crash-safe recovery and idempotent commit/rollback behavior.

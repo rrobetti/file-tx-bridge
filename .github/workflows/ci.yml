@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request_review:
+    types:
+      - submitted
+
+jobs:
+  build-and-test:
+    if: github.event_name == 'push' || github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build and test core module
+        run: mvn --batch-mode verify
+
+      - name: Install core module to local repository
+        run: mvn --batch-mode install -DskipTests
+
+      - name: Build and test atomikos module
+        run: mvn --batch-mode verify
+        working-directory: file-tx-bridge-atomikos
+
+      - name: Build and test spring-boot-autoconfigure module
+        run: mvn --batch-mode verify
+        working-directory: file-tx-bridge-spring-boot-autoconfigure
