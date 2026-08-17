@@ -17,6 +17,7 @@ import javax.transaction.xa.Xid;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -85,6 +86,23 @@ public class FileXaResource implements XAResource {
         FileTxContext ctx = getContext(xid);
         Path txDir = ctx.getTxDir();
 
+        if (!Files.exists(txDir)) {
+            // The tx directory is gone -- e.g. a concurrent abandoned-transaction
+            // sweep (RecoveryManager#cleanupAbandonedTransactions) raced with this
+            // prepare() call, or external interference removed it (see README's
+            // "External interference" limitation). Either way, this branch can
+            // never be committed. XA_RBROLLBACK is a promise, not just a vote: it
+            // tells the TM this branch has ALREADY been rolled back, so it will
+            // never call rollback() on it. That promise is only true once we
+            // actually clean up this operation's staging files ourselves first --
+            // targets were never created (commit() never ran), but leftover staging
+            // files would mean we hadn't really achieved a rolled-back state.
+            log.error("prepare: tx directory missing for xid {}, cleaning up and reporting as already rolled back",
+                    XidUtils.toDirectoryName(xid));
+            deleteStagingFilesBestEffort(ctx);
+            throw new XAException(XAException.XA_RBROLLBACK);
+        }
+
         try {
             // Build and persist metadata
             List<TxMetadata.OpMetadata> opMetas = new ArrayList<>();
@@ -108,6 +126,16 @@ public class FileXaResource implements XAResource {
             DurabilityHelper.createFlagFile(txDir.resolve(FLAG_PREPARED));
             ctx.setState(TxState.PREPARED);
             return XA_OK;
+        } catch (NoSuchFileException e) {
+            // The tx directory disappeared mid-prepare (same race/interference as
+            // above, just caught partway through instead of at the top). Same
+            // reasoning: clean up first, so "already rolled back" is actually true.
+            log.error("prepare: tx directory disappeared mid-prepare for xid {}, cleaning up and reporting as already rolled back",
+                    XidUtils.toDirectoryName(xid), e);
+            deleteStagingFilesBestEffort(ctx);
+            XAException xa = new XAException(XAException.XA_RBROLLBACK);
+            xa.initCause(e);
+            throw xa;
         } catch (IOException e) {
             log.error("prepare failed for xid {}", XidUtils.toDirectoryName(xid), e);
             XAException xa = new XAException(XAException.XAER_RMERR);
@@ -365,6 +393,20 @@ public class FileXaResource implements XAResource {
         return rm.getRmHome().equals(other.rm.getRmHome());
     }
 
+    /**
+     * Whether this exact resource instance currently tracks the given tx directory
+     * key ({@link com.example.filetxbridge.util.XidUtils#toDirectoryName(Xid)}) in
+     * memory. Used by recovery-adjacent tooling (e.g. an age-based abandoned-
+     * transaction sweep) to tell apart "this JVM never started this transaction"
+     * (safe to reason about from on-disk age alone) from "this JVM is still
+     * actively holding it" (never safe: prepare() is not barred by a transaction
+     * manager's timeout the way commit() is, so a legitimately slow prepare() could
+     * still land on it at any moment).
+     */
+    public boolean hasInMemoryContext(String xidKey) {
+        return contexts.containsKey(xidKey);
+    }
+
     @Override
     public int getTransactionTimeout() throws XAException {
         return transactionTimeout;
@@ -463,6 +505,25 @@ public class FileXaResource implements XAResource {
     private Path stagingPath(FileTxContext ctx, FileOperation op) {
         String xidKey = XidUtils.toDirectoryName(ctx.getXid());
         return rm.getStagingDir().resolve(xidKey + "-" + op.getOpId() + ".tmp");
+    }
+
+    /**
+     * Deletes every operation's staging file for this context, best-effort. Used
+     * when {@link #prepare(Xid)} discovers its own tx directory is already gone: it
+     * still has the operations in memory (meta.properties was never durably
+     * written), so it can and must clean these up itself before it can honestly
+     * report XA_RBROLLBACK -- that code promises the branch is ALREADY rolled
+     * back, and target files aside (never created, since commit() never ran),
+     * leftover staging files are the one thing that promise would otherwise break.
+     */
+    private void deleteStagingFilesBestEffort(FileTxContext ctx) {
+        for (FileOperation op : ctx.getOperations()) {
+            try {
+                Files.deleteIfExists(stagingPath(ctx, op));
+            } catch (IOException e) {
+                log.warn("Failed to delete staging file for op {} during prepare-failure cleanup", op.getOpId(), e);
+            }
+        }
     }
 
     private Path backupPath(String xidKey, FileOperation op) {
