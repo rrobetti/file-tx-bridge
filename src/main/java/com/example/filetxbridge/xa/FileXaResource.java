@@ -15,6 +15,7 @@ import javax.transaction.xa.XAException;
 import javax.transaction.xa.XAResource;
 import javax.transaction.xa.Xid;
 import java.io.IOException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -104,6 +105,38 @@ public class FileXaResource implements XAResource {
         }
 
         try {
+            // Ensure target/commit-flag parent directories exist, confirm the
+            // staging directory and target directory are on the same
+            // filesystem (Files.move's ATOMIC_MOVE requires that), and -- for
+            // REPLACE_EXISTING -- take a safety copy of any pre-existing
+            // target. All of this used to happen in commit(), where a failure
+            // meant a heuristic outcome once other operations in the same
+            // transaction had already committed. Doing it here instead means
+            // a failure is just a clean vote-no (XAER_RMERR below), and
+            // commit() is reduced to a single atomic move per operation.
+            for (FileOperation op : ctx.getOperations()) {
+                Path targetDir = op.getTargetPath().getParent();
+                op.setTargetDirCreationRoot(createDirectoriesTrackingRoot(targetDir));
+
+                Path commitFlagDir = op.getCommitFlagPath().getParent();
+                op.setCommitFlagDirCreationRoot(createDirectoriesTrackingRoot(commitFlagDir));
+
+                if (!Files.getFileStore(rm.getStagingDir()).equals(Files.getFileStore(targetDir))) {
+                    throw new IOException("staging directory " + rm.getStagingDir()
+                            + " and target directory " + targetDir + " are on different "
+                            + "filesystems -- an atomic move between them is not possible");
+                }
+
+                if (op.getMode() == WriteMode.REPLACE_EXISTING && Files.exists(op.getTargetPath())) {
+                    Path backup = backupPath(XidUtils.toDirectoryName(xid), op);
+                    Files.createDirectories(backup.getParent());
+                    Files.copy(op.getTargetPath(), backup,
+                            StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+                    DurabilityHelper.fsyncFile(backup);
+                    DurabilityHelper.fsyncDir(backup.getParent());
+                }
+            }
+
             // Build and persist metadata
             List<TxMetadata.OpMetadata> opMetas = new ArrayList<>();
             for (FileOperation op : ctx.getOperations()) {
@@ -112,7 +145,11 @@ public class FileXaResource implements XAResource {
                         op.getTargetPath().toAbsolutePath().toString(),
                         stagingPath(ctx, op).toAbsolutePath().toString(),
                         op.getCommitFlagPath().toAbsolutePath().toString(),
-                        op.getMode().name()
+                        op.getMode().name(),
+                        op.getTargetDirCreationRoot() == null ? null
+                                : op.getTargetDirCreationRoot().toAbsolutePath().toString(),
+                        op.getCommitFlagDirCreationRoot() == null ? null
+                                : op.getCommitFlagDirCreationRoot().toAbsolutePath().toString()
                 ));
             }
             String xidDirName = XidUtils.toDirectoryName(xid);
@@ -188,18 +225,23 @@ public class FileXaResource implements XAResource {
                 }
 
                 try {
-                    // Ensure parent directory exists
+                    // Self-healing hedge only: the parent directory, the same-
+                    // filesystem guarantee, and (for REPLACE_EXISTING) the backup
+                    // copy of any pre-existing target were already ensured during
+                    // prepare(). This createDirectories() only does real work if
+                    // something external removed the directory again in between.
                     Files.createDirectories(targetPath.getParent());
 
-                    // For REPLACE_EXISTING, backup existing target
-                    if (op.getMode() == WriteMode.REPLACE_EXISTING && Files.exists(targetPath)) {
-                        Path backup = backupPath(key, op);
-                        Files.createDirectories(backup.getParent());
-                        Files.move(targetPath, backup, StandardCopyOption.ATOMIC_MOVE);
+                    // Atomic move staging → target. REPLACE_EXISTING is only added
+                    // for WriteMode.REPLACE_EXISTING -- for CREATE_NEW we still want
+                    // the move to fail if a file unexpectedly showed up at the
+                    // target in the meantime, rather than silently overwrite it.
+                    if (op.getMode() == WriteMode.REPLACE_EXISTING) {
+                        Files.move(stagingFile, targetPath,
+                                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                    } else {
+                        Files.move(stagingFile, targetPath, StandardCopyOption.ATOMIC_MOVE);
                     }
-
-                    // Atomic move staging → target
-                    Files.move(stagingFile, targetPath, StandardCopyOption.ATOMIC_MOVE);
 
                     DurabilityHelper.fsyncFile(targetPath);
                     DurabilityHelper.fsyncDir(targetPath.getParent());
@@ -304,21 +346,34 @@ public class FileXaResource implements XAResource {
                 // Delete commit flag if it exists
                 Files.deleteIfExists(commitFlagPath);
 
-                if (op.getMode() == WriteMode.REPLACE_EXISTING && Files.exists(backup)) {
-                    // Commit started and backed up the original — restore it
-                    Files.createDirectories(targetPath.getParent());
-                    Files.move(backup, targetPath, StandardCopyOption.ATOMIC_MOVE);
-                } else if (op.getMode() == WriteMode.CREATE_NEW) {
-                    // For CREATE_NEW: the staging file was never atomically moved to the target
-                    // during rollback (commit was not reached), so delete the target if it exists
-                    // (e.g., commit partially succeeded before crash).
+                // A backup here is only ever prepare()'s safety COPY of a
+                // pre-existing target (see prepare()). The original target is
+                // never touched before commit() runs, and commit() is never
+                // invoked once rollback() is (a resource that voted XA_OK is
+                // only ever asked to commit or forget, never rollback -- see
+                // prepare()'s XA_RBROLLBACK path and commit()'s heuristic
+                // handling for the two cases where that vote is withdrawn
+                // before commit()). So the target needs no restoring here;
+                // just discard the now-unneeded copy.
+                Files.deleteIfExists(backup);
+
+                if (op.getMode() == WriteMode.CREATE_NEW) {
+                    // Defensive: under the reasoning above this should never
+                    // find anything, but costs nothing to guard against a
+                    // target that appeared at this path outside this
+                    // transaction's own commit() path.
                     Files.deleteIfExists(targetPath);
                 }
-                // For REPLACE_EXISTING with no backup: commit never moved the original,
-                // so the target is untouched and must be left in place.
 
                 // Delete staging file
                 Files.deleteIfExists(stagingFile);
+
+                // Remove any parent directories prepare() created for this
+                // operation's target/commit-flag paths, if still empty --
+                // never touches a directory that already existed before
+                // prepare() (see createDirectoriesTrackingRoot()).
+                deleteCreatedDirectoryChain(targetPath.getParent(), op.getTargetDirCreationRoot());
+                deleteCreatedDirectoryChain(commitFlagPath.getParent(), op.getCommitFlagDirCreationRoot());
             }
 
             // Create ROLLED_BACK flag
@@ -482,6 +537,12 @@ public class FileXaResource implements XAResource {
                     WriteMode.valueOf(opMeta.getMode()),
                     null
             );
+            if (opMeta.getTargetDirCreationRoot() != null) {
+                op.setTargetDirCreationRoot(Path.of(opMeta.getTargetDirCreationRoot()));
+            }
+            if (opMeta.getCommitFlagDirCreationRoot() != null) {
+                op.setCommitFlagDirCreationRoot(Path.of(opMeta.getCommitFlagDirCreationRoot()));
+            }
             ctx.addOperation(op);
         }
 
@@ -528,6 +589,52 @@ public class FileXaResource implements XAResource {
 
     private Path backupPath(String xidKey, FileOperation op) {
         return rm.getBackupDir().resolve(xidKey + "-" + op.getOpId() + ".bak");
+    }
+
+    /**
+     * Creates {@code dir} and any missing ancestors (like {@link Files#createDirectories}),
+     * and returns the topmost ancestor that did not already exist -- {@code null} if
+     * {@code dir} already existed. The returned "creation root" lets a later
+     * {@link #rollback} undo exactly what was created here, and nothing that
+     * pre-existed it.
+     */
+    private Path createDirectoriesTrackingRoot(Path dir) throws IOException {
+        Path missingRoot = null;
+        Path p = dir;
+        while (p != null && !Files.exists(p)) {
+            missingRoot = p;
+            p = p.getParent();
+        }
+        Files.createDirectories(dir);
+        return missingRoot;
+    }
+
+    /**
+     * Best-effort: deletes {@code leaf} and any of its ancestors up to and including
+     * {@code creationRoot} (as recorded by {@link #createDirectoriesTrackingRoot}),
+     * stopping as soon as one is non-empty (something else has used it since) or
+     * already gone. Never touches anything above {@code creationRoot} -- that
+     * ancestor already existed before prepare() created the rest of the chain, so
+     * it is not this transaction's to remove. No-op if {@code creationRoot} is null
+     * (the directory already existed at prepare()-time).
+     */
+    private void deleteCreatedDirectoryChain(Path leaf, Path creationRoot) {
+        if (creationRoot == null) return;
+        Path dir = leaf;
+        while (dir != null) {
+            try {
+                Files.delete(dir);
+            } catch (NoSuchFileException e) {
+                // already gone -- fine
+            } catch (DirectoryNotEmptyException e) {
+                return; // something else is using it now; stop, go no further up
+            } catch (IOException e) {
+                log.warn("Failed to remove created directory {} during rollback cleanup", dir, e);
+                return;
+            }
+            if (dir.equals(creationRoot)) return;
+            dir = dir.getParent();
+        }
     }
 
     private void tryDeleteEmpty(Path dir) {
