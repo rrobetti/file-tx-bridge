@@ -58,7 +58,7 @@ The sections below describe manual bean wiring, which is appropriate when requir
 3. [Configuration properties](#3-configuration-properties)
 4. [Spring Beans](#4-spring-beans)
 5. [Enlisting the XAResource in a transaction](#5-enlisting-the-xaresource-in-a-transaction)
-6. [Service layer example](#6-service-layer-example)
+6. [Service layer examples](#6-service-layer-examples)
 7. [Startup recovery](#7-startup-recovery)
 8. [Testing](#8-testing)
 9. [Common pitfalls](#9-common-pitfalls)
@@ -261,10 +261,35 @@ public Xid currentXid(jakarta.transaction.Transaction tx) {
 
 ---
 
-## 6. Service layer example
+## 6. Service layer examples
 
-The following example shows a `ReportService` that writes a CSV report as part of a JTA
-transaction that also persists a `Report` entity to the database.
+FileTxBridge is most compelling when the file is part of the business transaction itself.
+Typical scenarios include:
+
+- generating a mainframe handoff file while marking the exported rows as sent;
+- producing a settlement file while closing the corresponding payments in the database;
+- writing a warehouse manifest while moving the batch state from `READY` to `COMPLETED`.
+
+### 6.1 Mainframe batch export scenario
+
+A common pattern is an outbound batch process that must either complete everywhere or fail
+everywhere:
+
+1. select the records to export and attach them to a `BatchRun`;
+2. update those records so they are marked as part of that batch;
+3. stage the outbound file with `FileXaSession.addCreateFile(...)`;
+4. advance the batch status to `COMPLETING`;
+5. let the JTA transaction manager drive 2PC commit.
+
+If the database work fails, the file never becomes visible. If the file resource cannot
+prepare or commit, the database rows and batch status roll back with it. That avoids the
+two failure modes that usually hurt operators most: "database says sent, but no file was
+delivered" and "file exists, but the batch is still marked failed."
+
+### 6.2 Simplified service example
+
+The following example shows a `BatchExportService` that writes a mainframe batch file as
+part of a JTA transaction that also updates the exported records and the batch run row.
 
 ```java
 package com.myapp.service;
@@ -279,35 +304,39 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.transaction.xa.Xid;
-import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 
 @Service
-public class ReportService {
+public class BatchExportService {
 
-    private final ReportRepository reportRepository;
+    private final BatchRunRepository batchRunRepository;
+    private final PaymentRepository paymentRepository;
     private final FileResourceManager fileRm;
     private final FileXaResource fileXaResource;
     private final TransactionManager jtaTm;
 
-    public ReportService(ReportRepository reportRepository,
-                         FileResourceManager fileRm,
-                         FileXaResource fileXaResource,
-                         TransactionManager jtaTm) {
-        this.reportRepository = reportRepository;
+    public BatchExportService(BatchRunRepository batchRunRepository,
+                              PaymentRepository paymentRepository,
+                              FileResourceManager fileRm,
+                              FileXaResource fileXaResource,
+                              TransactionManager jtaTm) {
+        this.batchRunRepository = batchRunRepository;
+        this.paymentRepository = paymentRepository;
         this.fileRm = fileRm;
         this.fileXaResource = fileXaResource;
         this.jtaTm = jtaTm;
     }
 
     @Transactional
-    public void generateReport(String reportId, byte[] csvContent) throws Exception {
-        // 1. Persist the report record to the database (participates in the same TX)
-        reportRepository.save(new Report(reportId));
+    public void exportBatch(String batchId, List<PaymentRecord> records, byte[] fileContent) throws Exception {
+        // 1. Update the database state that must commit together with the file handoff
+        batchRunRepository.markCompleting(batchId);
+        paymentRepository.markSent(batchId, records);
 
         // 2. Set up the file session for this transaction
-        Path target     = Path.of("/data/reports", reportId + ".csv");
-        Path commitFlag = Path.of("/data/reports", reportId + ".csv.committed");
+        Path target     = Path.of("/data/mainframe/outbound", batchId + ".dat");
+        Path commitFlag = Path.of("/data/mainframe/outbound", batchId + ".dat.committed");
 
         FileXaSession session = new FileXaSession(fileRm);
 
@@ -319,15 +348,18 @@ public class ReportService {
         Xid xid = currentXid(tx);
         session.begin(xid);
 
-        // 5. Stage the file content (written to staging dir, not yet visible)
-        session.addCreateFile(target, commitFlag, csvContent, WriteMode.CREATE_NEW);
+        // 5. Stage the outbound file (written to staging dir, not yet visible)
+        session.addCreateFile(target, commitFlag, fileContent, WriteMode.CREATE_NEW);
 
-        // 6. Signal successful completion of the file operations
+        // 6. Advance the batch status only within the same transaction
+        batchRunRepository.markCompleted(batchId);
+
+        // 7. Signal successful completion of the file operations
         session.end();
 
         // Spring commits the JTA transaction on method exit:
         //   TM calls prepare() then commit() on every enlisted XAResource, including the file one.
-        //   The CSV file and its .committed marker become visible only after commit.
+        //   The batch file and its .committed marker become visible only after commit.
     }
 
     /** Extract the Xid from the active Atomikos transaction. */
@@ -341,7 +373,7 @@ public class ReportService {
 }
 ```
 
-### Input stream variant (large files)
+### 6.3 Input stream variant (large files)
 
 For large files, use the `InputStream` overload to avoid buffering the entire content in memory:
 
@@ -351,7 +383,7 @@ try (InputStream in = Files.newInputStream(sourceFile)) {
 }
 ```
 
-### Replacing an existing file
+### 6.4 Replacing an existing file
 
 ```java
 session.addCreateFile(target, commitFlag, updatedContent, WriteMode.REPLACE_EXISTING);

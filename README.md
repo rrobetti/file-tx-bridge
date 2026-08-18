@@ -21,6 +21,27 @@ FileTxBridge is a Java library that coordinates file creation with transactional
 - A JTA transaction manager (e.g. Bitronix, Atomikos, Narayana, Jakarta Transactions)
 - Staging directory on the **same filesystem** as target files (for `ATOMIC_MOVE` support)
 
+## Use cases and motivated examples
+
+FileTxBridge is most useful when a file is not just an output artifact, but part of the
+business transaction itself. Typical scenarios include:
+
+- **Mainframe batch handoff**: generate a fixed-width or CSV file for a mainframe import,
+  mark the exported records as sent in the database, and advance the batch run status from
+  `READY` to `COMPLETED` only if the file commit also succeeds.
+- **Partner or bank settlement exports**: write an ACH, SEPA, or other settlement file
+  while recording the settlement ledger entry and preventing the same payments from being
+  picked up by a later batch if the transaction rolls back.
+- **Warehouse or ERP integration drops**: create an inventory or shipping manifest in a
+  watched directory while updating order state and integration audit tables in the same
+  unit of work.
+- **Regulatory/reporting feeds**: produce a compliance file while persisting the exact
+  reporting snapshot and the "reported at" marker together, so operators never see a file
+  without matching database state.
+
+The common motivation is avoiding split-brain outcomes such as "database says sent, but the
+file never appeared" or "file exists, but the application still thinks the batch failed."
+
 ## Maven coordinates
 
 ```xml
