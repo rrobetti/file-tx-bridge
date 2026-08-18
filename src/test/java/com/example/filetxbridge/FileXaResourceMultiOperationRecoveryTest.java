@@ -113,8 +113,11 @@ class FileXaResourceMultiOperationRecoveryTest {
         Path stagingB = rm.getStagingDir().resolve(xidKey + "-op-1.tmp");
         Files.delete(stagingB);
 
+        // Operation A already succeeded before operation B's turn, so this is now
+        // a heuristic hazard (op A committed, op B's fate is unknown), not a plain
+        // retriable error -- see FileXaResource#commit's XA_HEURHAZ handling.
         XAException ex = assertThrows(XAException.class, () -> session.getXaResource().commit(xid, false));
-        assertEquals(XAException.XAER_RMERR, ex.errorCode);
+        assertEquals(XAException.XA_HEURHAZ, ex.errorCode);
         assertFalse(Files.exists(rm.getTxDir(xid).resolve(FileXaResource.FLAG_COMMITTED)),
                 "must not report the transaction as cleanly committed when operation B was never applied");
     }
