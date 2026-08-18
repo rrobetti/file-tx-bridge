@@ -47,27 +47,42 @@ public class FileXaSession {
             throw new IllegalStateException("No active transaction");
         }
 
-        String xidKey = XidUtils.toDirectoryName(currentXid);
-        String opId = "op-" + opCounter.getAndIncrement();
-        Path stagingFile = rm.getStagingDir().resolve(xidKey + "-" + opId + ".tmp");
+        // Acquire the advisory lock for this target path before doing any work, so
+        // a concurrent transaction targeting the same path waits (or fails loudly
+        // on timeout) instead of racing this one -- see PathLockManager. Held until
+        // this operation reaches a terminal state (commit()/rollback()/forget()
+        // releases it); released here instead if registering the operation itself
+        // never completes, so a failed addCreateFile() never leaks the lock.
+        rm.getLockManager().lock(targetPath);
+        boolean registered = false;
+        try {
+            String xidKey = XidUtils.toDirectoryName(currentXid);
+            String opId = "op-" + opCounter.getAndIncrement();
+            Path stagingFile = rm.getStagingDir().resolve(xidKey + "-" + opId + ".tmp");
 
-        // Write content to staging file and fsync
-        DurabilityHelper.writeAndFsync(stagingFile, content);
+            // Write content to staging file and fsync
+            DurabilityHelper.writeAndFsync(stagingFile, content);
 
-        // Resolve commitFlagPath: use target + ".committed" if null
-        Path resolvedFlagPath = commitFlagPath != null
-                ? commitFlagPath
-                : targetPath.resolveSibling(targetPath.getFileName() + ".committed");
+            // Resolve commitFlagPath: use target + ".committed" if null
+            Path resolvedFlagPath = commitFlagPath != null
+                    ? commitFlagPath
+                    : targetPath.resolveSibling(targetPath.getFileName() + ".committed");
 
-        FileOperation op = new FileOperation(opId, targetPath.toAbsolutePath(),
-                resolvedFlagPath.toAbsolutePath(), mode, content);
+            FileOperation op = new FileOperation(opId, targetPath.toAbsolutePath(),
+                    resolvedFlagPath.toAbsolutePath(), mode, content);
 
-        Map<String, FileTxContext> contexts = xaResource.getContexts();
-        FileTxContext ctx = contexts.get(xidKey);
-        if (ctx == null) {
-            throw new XAException(XAException.XAER_NOTA);
+            Map<String, FileTxContext> contexts = xaResource.getContexts();
+            FileTxContext ctx = contexts.get(xidKey);
+            if (ctx == null) {
+                throw new XAException(XAException.XAER_NOTA);
+            }
+            ctx.addOperation(op);
+            registered = true;
+        } finally {
+            if (!registered) {
+                rm.getLockManager().unlock(targetPath);
+            }
         }
-        ctx.addOperation(op);
     }
 
     public void addCreateFile(Path targetPath, Path commitFlagPath, InputStream contentStream, WriteMode mode)
@@ -76,37 +91,49 @@ public class FileXaSession {
             throw new IllegalStateException("No active transaction");
         }
 
-        String xidKey = XidUtils.toDirectoryName(currentXid);
-        String opId = "op-" + opCounter.getAndIncrement();
-        Path stagingFile = rm.getStagingDir().resolve(xidKey + "-" + opId + ".tmp");
+        // See the byte[] overload above for why this is acquired here and released
+        // in the finally block only on failure -- on success it stays held until
+        // commit()/rollback()/forget() resolves this operation.
+        rm.getLockManager().lock(targetPath);
+        boolean registered = false;
+        try {
+            String xidKey = XidUtils.toDirectoryName(currentXid);
+            String opId = "op-" + opCounter.getAndIncrement();
+            Path stagingFile = rm.getStagingDir().resolve(xidKey + "-" + opId + ".tmp");
 
-        // Stream directly to staging file to avoid buffering large content in memory
-        try (FileChannel ch = FileChannel.open(stagingFile,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.TRUNCATE_EXISTING)) {
-            byte[] buf = new byte[8192];
-            int read;
-            while ((read = contentStream.read(buf)) != -1) {
-                ch.write(ByteBuffer.wrap(buf, 0, read));
+            // Stream directly to staging file to avoid buffering large content in memory
+            try (FileChannel ch = FileChannel.open(stagingFile,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING)) {
+                byte[] buf = new byte[8192];
+                int read;
+                while ((read = contentStream.read(buf)) != -1) {
+                    ch.write(ByteBuffer.wrap(buf, 0, read));
+                }
+                ch.force(true);
             }
-            ch.force(true);
+
+            Path resolvedFlagPath = commitFlagPath != null
+                    ? commitFlagPath
+                    : targetPath.resolveSibling(targetPath.getFileName() + ".committed");
+
+            // Content byte[] is null for stream variant — staging file on disk is the source of truth
+            FileOperation op = new FileOperation(opId, targetPath.toAbsolutePath(),
+                    resolvedFlagPath.toAbsolutePath(), mode, null);
+
+            Map<String, FileTxContext> contexts = xaResource.getContexts();
+            FileTxContext ctx = contexts.get(xidKey);
+            if (ctx == null) {
+                throw new XAException(XAException.XAER_NOTA);
+            }
+            ctx.addOperation(op);
+            registered = true;
+        } finally {
+            if (!registered) {
+                rm.getLockManager().unlock(targetPath);
+            }
         }
-
-        Path resolvedFlagPath = commitFlagPath != null
-                ? commitFlagPath
-                : targetPath.resolveSibling(targetPath.getFileName() + ".committed");
-
-        // Content byte[] is null for stream variant — staging file on disk is the source of truth
-        FileOperation op = new FileOperation(opId, targetPath.toAbsolutePath(),
-                resolvedFlagPath.toAbsolutePath(), mode, null);
-
-        Map<String, FileTxContext> contexts = xaResource.getContexts();
-        FileTxContext ctx = contexts.get(xidKey);
-        if (ctx == null) {
-            throw new XAException(XAException.XAER_NOTA);
-        }
-        ctx.addOperation(op);
     }
 
     public void end() throws XAException {

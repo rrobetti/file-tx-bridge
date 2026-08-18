@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Base64;
@@ -54,6 +55,16 @@ public class PathLockManager {
                     return;
                 }
                 channel.close();
+            } catch (OverlappingFileLockException e) {
+                // A DIFFERENT thread in this same JVM already holds (or is racing to
+                // acquire) an overlapping lock on this exact file. tryLock() signals
+                // that as an exception rather than returning null (its contract
+                // treats same-JVM overlap as a caller error, not ordinary
+                // contention) -- but for this class's purpose (serializing two of
+                // this library's own concurrent transactions on the same target
+                // path) it means exactly the same thing as "not available yet", so
+                // retry it identically instead of failing immediately.
+                try { channel.close(); } catch (Exception ignored) {}
             } catch (Exception e) {
                 try { channel.close(); } catch (Exception ignored) {}
                 throw new IOException("Failed to acquire lock for " + targetPath, e);
