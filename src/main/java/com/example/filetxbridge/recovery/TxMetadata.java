@@ -52,6 +52,12 @@ public class TxMetadata {
             props.setProperty(pfx + "stagingPath", op.getStagingPath());
             props.setProperty(pfx + "commitFlagPath", op.getCommitFlagPath());
             props.setProperty(pfx + "mode", op.getMode());
+            if (op.getTargetDirCreationRoot() != null) {
+                props.setProperty(pfx + "targetDirCreationRoot", op.getTargetDirCreationRoot());
+            }
+            if (op.getCommitFlagDirCreationRoot() != null) {
+                props.setProperty(pfx + "commitFlagDirCreationRoot", op.getCommitFlagDirCreationRoot());
+            }
         }
         try (OutputStream os = Files.newOutputStream(metaFile)) {
             props.store(os, "file-tx-bridge metadata");
@@ -74,7 +80,9 @@ public class TxMetadata {
                     props.getProperty(pfx + "targetPath"),
                     props.getProperty(pfx + "stagingPath"),
                     props.getProperty(pfx + "commitFlagPath"),
-                    props.getProperty(pfx + "mode")
+                    props.getProperty(pfx + "mode"),
+                    props.getProperty(pfx + "targetDirCreationRoot"),
+                    props.getProperty(pfx + "commitFlagDirCreationRoot")
             ));
         }
         return new TxMetadata(xidDirName, xid, ops);
@@ -86,14 +94,19 @@ public class TxMetadata {
         private final String stagingPath;
         private final String commitFlagPath;
         private final String mode;
+        private final String targetDirCreationRoot;
+        private final String commitFlagDirCreationRoot;
 
         public OpMetadata(String opId, String targetPath, String stagingPath,
-                          String commitFlagPath, String mode) {
+                          String commitFlagPath, String mode,
+                          String targetDirCreationRoot, String commitFlagDirCreationRoot) {
             this.opId = opId;
             this.targetPath = targetPath;
             this.stagingPath = stagingPath;
             this.commitFlagPath = commitFlagPath;
             this.mode = mode;
+            this.targetDirCreationRoot = targetDirCreationRoot;
+            this.commitFlagDirCreationRoot = commitFlagDirCreationRoot;
         }
 
         public String getOpId() { return opId; }
@@ -101,5 +114,7 @@ public class TxMetadata {
         public String getStagingPath() { return stagingPath; }
         public String getCommitFlagPath() { return commitFlagPath; }
         public String getMode() { return mode; }
+        public String getTargetDirCreationRoot() { return targetDirCreationRoot; }
+        public String getCommitFlagDirCreationRoot() { return commitFlagDirCreationRoot; }
     }
 }
