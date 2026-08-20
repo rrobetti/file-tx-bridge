@@ -101,6 +101,7 @@ public class FileXaResource implements XAResource {
             log.error("prepare: tx directory missing for xid {}, cleaning up and reporting as already rolled back",
                     XidUtils.toDirectoryName(xid));
             deleteStagingFilesBestEffort(ctx);
+            releasePathLocks(ctx);
             throw new XAException(XAException.XA_RBROLLBACK);
         }
 
@@ -170,6 +171,7 @@ public class FileXaResource implements XAResource {
             log.error("prepare: tx directory disappeared mid-prepare for xid {}, cleaning up and reporting as already rolled back",
                     XidUtils.toDirectoryName(xid), e);
             deleteStagingFilesBestEffort(ctx);
+            releasePathLocks(ctx);
             XAException xa = new XAException(XAException.XA_RBROLLBACK);
             xa.initCause(e);
             throw xa;
@@ -288,6 +290,11 @@ public class FileXaResource implements XAResource {
             DurabilityHelper.fsyncDir(txDir);
             ctx.setState(TxState.COMMITTED);
 
+            // Every operation has reached its terminal state -- release the path
+            // locks addCreateFile() took out, so a waiting concurrent transaction
+            // targeting the same path can now proceed.
+            releasePathLocks(ctx);
+
             // Create per-operation commit flag files
             for (FileOperation op : ctx.getOperations()) {
                 Path commitFlagPath = op.getCommitFlagPath();
@@ -380,9 +387,9 @@ public class FileXaResource implements XAResource {
             DurabilityHelper.createFlagFile(txDir.resolve(FLAG_ROLLED_BACK));
             ctx.setState(TxState.ROLLED_BACK);
 
-            // Best-effort cleanup of backup and staging dirs (they may contain other tx files)
-            tryDeleteEmpty(rm.getBackupDir());
-            tryDeleteEmpty(rm.getStagingDir());
+            // Every operation has reached its terminal state -- release the path
+            // locks addCreateFile() took out.
+            releasePathLocks(ctx);
 
         } catch (IOException e) {
             log.error("rollback failed for xid {}", key, e);
@@ -434,6 +441,15 @@ public class FileXaResource implements XAResource {
     public void forget(Xid xid) throws XAException {
         String key = XidUtils.toDirectoryName(xid);
         Path txDir = rm.getTxDir(xid);
+        try {
+            // A heuristically-completed transaction never reached commit()'s or
+            // rollback()'s own lock release (that's what made it heuristic in the
+            // first place) -- forget() is its only remaining terminal-resolution
+            // point, so release the path locks here instead.
+            releasePathLocks(loadOrGetContext(xid));
+        } catch (XAException e) {
+            log.warn("forget: failed to load context to release path locks for xid {}", key, e);
+        }
         try {
             deleteDirectoryRecursive(txDir);
         } catch (IOException e) {
@@ -587,8 +603,20 @@ public class FileXaResource implements XAResource {
         }
     }
 
-    private Path backupPath(String xidKey, FileOperation op) {
-        return rm.getBackupDir().resolve(xidKey + "-" + op.getOpId() + ".bak");
+    /**
+     * Releases the advisory path lock {@link FileXaSession#addCreateFile} took out
+     * for each of this context's operations. Called from every point at which a
+     * transaction reaches a terminal state for this resource: commit(), rollback(),
+     * forget() (the only remaining terminal point for a heuristically-completed
+     * transaction), and the two prepare()-time paths that report XA_RBROLLBACK
+     * (which promise the branch is already rolled back). {@link
+     * com.example.filetxbridge.lock.PathLockManager#unlock} never throws -- it logs
+     * and continues on failure -- so this needs no error handling of its own.
+     */
+    private void releasePathLocks(FileTxContext ctx) {
+        for (FileOperation op : ctx.getOperations()) {
+            rm.getLockManager().unlock(op.getTargetPath());
+        }
     }
 
     /**
@@ -637,18 +665,8 @@ public class FileXaResource implements XAResource {
         }
     }
 
-    private void tryDeleteEmpty(Path dir) {
-        try {
-            if (Files.isDirectory(dir)) {
-                try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir)) {
-                    if (!ds.iterator().hasNext()) {
-                        Files.deleteIfExists(dir);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.debug("Best-effort delete of {} failed: {}", dir, e.getMessage());
-        }
+    private Path backupPath(String xidKey, FileOperation op) {
+        return rm.getBackupDir().resolve(xidKey + "-" + op.getOpId() + ".bak");
     }
 
     private void deleteDirectoryRecursive(Path dir) throws IOException {
